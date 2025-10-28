@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Live Mirror (view-only)</title>
+  <style>
+    body { font-family: system-ui, Arial; margin: 0; background:#111; color:#eee; }
+    header { padding:10px 14px; background:#1b1b1b; border-bottom:1px solid #222; display:flex; gap:10px; align-items:center }
+    .stat { font-size:12px; color:#bbb }
+    #wrap { display:flex; justify-content:center; align-items:center; height: calc(100vh - 50px); }
+    canvas { background:#000; border:1px solid #333; max-width: 100%; height:auto; }
+    button, select { background:#222; color:#ddd; border:1px solid #444; padding:6px 10px; border-radius:6px }
+  </style>
+</head>
+<body>
+  <header>
+    <div>Live Mirror (View-Only)</div>
+    <button id="fit">Fit</button>
+    <label>Scale
+      <select id="scale">
+        <option>0.5</option>
+        <option selected>1</option>
+        <option>1.25</option>
+        <option>1.5</option>
+        <option>2</option>
+      </select>
+    </label>
+    <div class="stat" id="stat">-</div>
+  </header>
+
+  <div id="wrap">
+    <canvas id="cv" width="1280" height="800"></canvas>
+  </div>
+
+  <script>
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d');
+    const stat = document.getElementById('stat');
+    const scaleSel = document.getElementById('scale');
+    const fitBtn = document.getElementById('fit');
+
+    let ws, lastTS = 0, frames = 0, fps = 0;
+    let img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0, cv.width, cv.height);
+      frames++;
+      const now = performance.now();
+      if (now - lastTS >= 1000) {
+        fps = frames; frames = 0; lastTS = now;
+        stat.textContent = `FPS: ${fps} | ${cv.width}x${cv.height}`;
+      }
+    };
+
+    function connect() {
+      ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => console.log('[ws] open');
+      ws.onmessage = (ev) => {
+        const buf = ev.data instanceof ArrayBuffer ? ev.data : ev.data.buffer;
+        const blob = new Blob([buf], { type: 'image/jpeg' });
+        const url = URL.createObjectURL(blob);
+        img.src = url;
+        setTimeout(()=>URL.revokeObjectURL(url), 1000);
+      };
+      ws.onclose = () => {
+        console.log('[ws] close, retry in 2s');
+        setTimeout(connect, 2000);
+      };
+      ws.onerror = (e) => console.warn('[ws] error', e);
+    }
+    connect();
+
+    // 🔒 보기 전용: 마우스/키보드 이벤트를 전혀 전송하지 않음 (리스너 없음)
+
+    // 스케일 조절 UI만 유지
+    function applyScale(s) {
+      const w = 1280 * s, h = 800 * s;
+      cv.style.width = w + 'px';
+      cv.style.height = h + 'px';
+    }
+    scaleSel.addEventListener('change', () => applyScale(parseFloat(scaleSel.value)));
+    fitBtn.addEventListener('click', () => {
+      const r = document.getElementById('wrap').getBoundingClientRect();
+      const sx = r.width / 1280, sy = r.height / 800;
+      const s = Math.max(0.25, Math.min(sx, sy));
+      scaleSel.value = s.toFixed(2);
+      applyScale(s);
+    });
+    applyScale(parseFloat(scaleSel.value));
+  </script>
+</body>
+</html>
